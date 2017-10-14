@@ -1,0 +1,223 @@
+---
+title: "DATA621 - Predictive Modeling Metrics"
+author: "Daniel Hong, Mauricio Alarcon, Maxwell Wagner"
+date: "October 3, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+* * *
+
+**1. Download the classification output data set (attached in Blackboard to the assignment).**
+
+```{r,message=FALSE}
+require("plyr")
+require("knitr")
+require("psych")
+require("knitr")
+require("ggplot2")
+require("pracma")
+
+d <- read.csv(url('https://raw.githubusercontent.com/rmalarc/DATA621/master/hw02/classification-output-data.csv'))
+kable(head(d))
+```
+
+* * * 
+
+**2. The data set has three key columns we will use:**
+
+* **class: the actual class for the observation**
+* **scored.class: the predicted class for the observation (based on a threshold of 0.5)**
+* **scored.probability: the predicted probability of success for the observation**
+
+**Use the table() function to get the raw confusion matrix for this scored dataset. Make sure you understand the output. In particular, do the rows represent the actual or predicted class? The columns?**
+
+```{r}
+kable(table(d$class,d$scored.class))
+```
+
+In the case above, the rows represent actual values, and columns represent predicted values. For example, in the first row, it indicates that `(119 + 5) = 24` 0's were present in the actual values. For the predicted value in column one, `(119 + 30) = 149` 0's were present. The same principal applies to the second row and column.
+
+* * * 
+
+**3 Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the accuracy of the predictions.**
+
+**accuracy = tp + tn / tp + fp + tn + fn**
+
+First, let's define a helper function to calculate the confusion matrix values:
+
+```{r}
+# let's use this helper function that will return all the rates for future calculations
+confusion_matrix <- function(d){
+  data.frame(tp=nrow(d[d$class==1 & d$scored.class==1,]),
+             tn=nrow(d[d$class==0 & d$scored.class==0,]),
+             fp=nrow(d[d$class==0 & d$scored.class==1,]),
+             fn=nrow(d[d$class==1 & d$scored.class==0,])
+  )
+}
+kable(confusion_matrix(d))
+```
+
+And now accuracy:
+
+```{r}
+accuracy<-function(d){
+  f <- confusion_matrix(d)
+  (f$tp+f$tn)/(f$tp+f$fp+f$tn+f$fn)
+}
+accuracy(d)
+```
+
+* * * 
+
+**4 Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the classification error rate of the predictions.**
+
+**classification error rate = FP+FN / TP + FP + TN + FN**
+
+**Verify that you get an accuracy and an error rate that sums to one.**
+
+
+```{r}
+classification_error_rate<-function(d){
+  f <- confusion_matrix(d)
+  (f$fp+f$fn)/(f$tp+f$fp+f$tn+f$fn)
+}
+classification_error_rate(d)
+```
+
+and 
+
+```{r}
+classification_error_rate(d) + accuracy(d)
+```
+
+it adds to 1!
+
+* * * 
+
+**5 Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the precision of the predictions.**
+
+**Precision = TP / TP + FP**
+
+```{r}
+precision_c<-function(d){
+  f <- confusion_matrix(d)
+  (f$tp)/(f$tp+f$fp)
+}
+precision_c(d)
+```
+
+
+* * * 
+
+**6 Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the sensitivity of the predictions. Sensitivity is also known as recall.**
+
+**Sensitivity = TP / TP + FN**
+
+```{r}
+sensitivity_c<-function(d){
+  f <- confusion_matrix(d)
+  (f$tp)/(f$tp+f$fn)
+}
+sensitivity_c(d)
+```
+
+
+* * * 
+
+**7 Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the specificity of the predictions.**
+
+**Specificity = TN / TN + FP**
+
+```{r}
+specificity_c<-function(d){
+  f <- confusion_matrix(d)
+  (f$tn)/(f$tn+f$fp)
+}
+specificity_c(d)
+```
+
+
+* * * 
+
+**8 Write a function that takes the data set as a dataframe, with actual and predicted classifications identified, and returns the F1 score of the predictions.**
+
+**f1 Score = 2 precission x sensitivity / precission + sensitivity**
+
+```{r}
+f1_score<-function(d){
+  p<- precision_c(d)
+  s<- sensitivity_c(d)
+  2*p*s/(p+s)
+}
+f1_score(d)
+```
+
+
+* * * 
+
+**9 Before we move on, let's consider a question that was asked: What are the bounds on the F1 score? Show that the F1 score will always be between 0 and 1.**
+
+```{r}
+n<-10000
+p <- runif(n)
+s <- runif(n)
+f1 <- 2*p*s/(p+s)
+
+hist(f1)
+summary(f1)
+```
+
+
+* * * 
+
+**10 Write a function that generates an ROC curve from a data set with a true classification column (class in our example) and a probability column (scored.probability in our example). Your function should return a list that includes the plot of the ROC curve and a vector that contains the calculated area under the curve (AUC). Note that I recommend using a sequence of thresholds ranging from 0 to 1 at 0.01 intervals.**
+
+```{r}
+roc_c <- function(trues, probs) {
+  trues <- trues[order(probs, decreasing = TRUE)] # sort by the order of the probabilities
+  tp <- cumsum(trues) / sum(trues) # get true positives
+  fp <- cumsum(!trues) / sum(!trues) # get false positives
+  roc_graph <- qplot(fp, tp) + ggtitle("ROC Curve") + geom_abline(slope = 1) 
+  auc <- trapz(fp, tp)
+  list(roc_graph = roc_graph, auc = auc)
+}
+```
+
+* * * 
+
+**11 Use your created R functions and the provided classification output data set to produce all of the classification metrics discussed above.**
+
+```{r}
+rc <- roc_c(d$class, d$scored.probability)
+rc$roc_graph
+rc$auc
+```
+
+* * * 
+
+**12 Investigate the caret package. In particular, consider the functions confusionMatrix, sensitivity, and specificity. Apply the functions to the data set. How do the results compare with your own functions?**
+
+```{r,message=FALSE}
+require("caret")
+d_tab <- table(d$class,d$scored.class)
+confusionMatrix(d_tab, reference = d$class)
+sensitivity(d_tab)
+specificity(d_tab)
+```
+
+The first function shows it all, probably don't need the others.
+
+* * * 
+
+**13 Investigate the pROC package. Use it to generate an ROC curve for the data set. How do the results compare with your own functions?**
+
+```{r,message=FALSE}
+require("pROC")
+d_roc <- roc(d$class,d$scored.probability)
+plot(d_roc, main = "ROC with pROC")
+ci(d_roc)
+```

@@ -1,0 +1,485 @@
+---
+title: "DATA621 - Hospitals"
+author: "Daniel Hong, Mauricio Alarcon, Maxwell Wagner"
+date: "Nov 15, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+* * * 
+
+
+## 1. DATA EXPLORATION (25 Points)
+
+Describe the size and the variables in the insurance training data set. Consider that too much detail will cause a
+manager to lose interest while too little detail will make the manager consider that you aren’t doing your job. Some
+suggestions are given below. Please do NOT treat this as a check list of things to do to complete the assignment.
+You should have your own thoughts on what to tell the boss. These are just ideas.
+
+a. Mean / Standard Deviation / Median
+
+b. Bar Chart or Box Plot of the data
+
+c. Is the data correlated to the target variable (or to other variables?)
+
+d. Are any of the variables missing and need to be imputed “fixed”?
+
+***
+
+a. Mean / Standard Deviation / Median
+
+```{r, message=FALSE, warning=FALSE}
+#require("plyr")
+require("knitr")
+require("psych")
+# Let's load the data
+#detach(package:plyr)
+require("dplyr")
+coalesce <- function(...) {
+  apply(cbind(...), 1, function(x) {
+          x[which(!is.na(x))[1]]
+        })
+}
+
+hcahps <- rbind(read.csv(url('https://raw.githubusercontent.com/rmalarc/DATA621/master/final/HCAHPS - Hospital.csv'),stringsAsFactors = FALSE),read.csv(url('https://raw.githubusercontent.com/rmalarc/DATA621/master/final/HCAHPS - Hospital2.csv'),stringsAsFactors = FALSE))
+
+unique(hcahps$HCAHPS.Question)
+
+unique(unlist(c(hcahps$Patient.Survey.Star.Rating.Footnote,hcahps$HCAHPS.Answer.Percent.Footnote,hcahps$Survey.Response.Rate.Percent.Footnote,hcahps$Number.of.Completed.Surveys.Footnote)))
+
+
+hcahps_lms <- hcahps[grep("(linear mean score)",hcahps$HCAHPS.Question),] #|Summary star rating
+hcahps_lms$v <- coalesce(as.numeric(hcahps_lms$Patient.Survey.Star.Rating),as.numeric(hcahps_lms$HCAHPS.Linear.Mean.Value)) #,as.numeric(hcahps$HCAHPS.Answer.Percent),
+
+hcahps_wide<-reshape(hcahps_lms[,c("Provider.ID", "Survey.Response.Rate.Percent","HCAHPS.Question","v")], 
+  timevar = "HCAHPS.Question",
+  idvar = c("Provider.ID", "Survey.Response.Rate.Percent"),
+  direction = "wide")
+#hcahps_wide<-hcahps_wide[complete.cases(hcahps_wide),]
+
+#hist(hcahps_wide$`v.Summary star rating`,main="Summary Star Rating")
+#mean(hcahps_wide$`v.Summary star rating`,na.rm = T)
+#sd(hcahps_wide$`v.Summary star rating`,na.rm = T)
+
+hist(hcahps_wide$`v.Recommend hospital - linear mean score`,main="Recommend Hospital - Linear Mean Score")
+mean(hcahps_wide$`v.Recommend hospital - linear mean score`,na.rm = T)
+sd(hcahps_wide$`v.Recommend hospital - linear mean score`,na.rm = T)
+
+general_info <- read.csv(url('https://raw.githubusercontent.com/rmalarc/DATA621/master/final/Hospital General Information.csv'),stringsAsFactors = FALSE)
+
+colnames(general_info)
+summary(general_info)
+
+sapply(general_info[,c("Hospital.Type"
+,"Hospital.Ownership"
+,"Emergency.Services"
+,"Hospital.overall.rating"
+,"Mortality.national.comparison"
+,"Safety.of.care.national.comparison"
+,"Readmission.national.comparison"
+,"Effectiveness.of.care.national.comparison"
+,"Timeliness.of.care.national.comparison"
+,"Efficient.use.of.medical.imaging.national.comparison")], unique)
+
+training <- merge(hcahps_wide, general_info[,c("Provider.ID"
+,"Hospital.Type"
+,"Hospital.Ownership"
+,"Emergency.Services"
+,"Hospital.overall.rating"
+,"Mortality.national.comparison"
+,"Safety.of.care.national.comparison"
+,"Readmission.national.comparison"
+,"Effectiveness.of.care.national.comparison"
+,"Timeliness.of.care.national.comparison"
+,"Efficient.use.of.medical.imaging.national.comparison")], by="Provider.ID")
+
+sapply(general_info, function(x){length(x[x=="Not Available"])})
+
+training$Hospital.overall.rating <- ifelse(training$Hospital.overall.rating=="Not Available",NA,training$Hospital.overall.rating)
+training$Mortality.national.comparison <- ifelse(training$Mortality.national.comparison=="Not Available",NA,training$Mortality.national.comparison)
+training$Safety.of.care.national.comparison <- ifelse(training$Safety.of.care.national.comparison=="Not Available",NA,training$Safety.of.care.national.comparison)
+training$Readmission.national.comparison <- ifelse(training$Readmission.national.comparison=="Not Available",NA,training$Readmission.national.comparison)
+training$Effectiveness.of.care.national.comparison <- ifelse(training$Effectiveness.of.care.national.comparison=="Not Available",NA,training$Effectiveness.of.care.national.comparison)
+training$Timeliness.of.care.national.comparison <- ifelse(training$Timeliness.of.care.national.comparison=="Not Available",NA,training$Timeliness.of.care.national.comparison)
+training$Efficient.use.of.medical.imaging.national.comparison <- ifelse(training$Efficient.use.of.medical.imaging.national.comparison=="Not Available",NA,training$Efficient.use.of.medical.imaging.national.comparison)
+
+
+columns <- colnames(training)
+target <- c("v.Recommend hospital - linear mean score") #"v.Summary star rating",
+inputs <- columns[!columns %in% c(target,"Provider.ID")]
+
+
+summary <- describe(training[,c(target,inputs)],na.rm = TRUE)[,c("n","mean","sd","median","min","max")]
+summary$completeness <- summary$n/nrow(training)
+summary$cv <- 100*summary$sd/summary$mean
+
+kable(summary)
+
+head(training)
+summary(training)
+
+
+```
+
+
+## 2. DATA PREPARATION (25 Points)
+
+Describe how you have transformed the data by changing the original variables or creating new variables. If you did transform the data or create new variables, discuss why you did this. Here are some possible transformations.
+
+a. Fix missing values (maybe with a Mean or Median value)
+
+b. Create flags to suggest if a variable was missing
+
+c. Transform data by putting it into buckets
+
+d. Mathematical transforms such as log or square root (or use Box-Cox)
+
+e. Combine variables (such as ratios or adding or multiplying) to create new variables
+
+### Data Transformations
+
+
+
+ 
+```{r}
+
+training<-training[complete.cases(training),]
+
+transform <- function(d){
+  d['TARGET_NUM'] <- as.numeric(d["v.Recommend hospital - linear mean score"])
+  d['SURVEY_RESPONSE_RATE'] <- as.numeric(d["Survey.Response.Rate.Percent"])
+  d['CLEANLINESS'] <- as.numeric(d["v.Cleanliness - linear mean score"])
+  d['NURSE_COMMUNICATION'] <- as.numeric(d["v.Nurse communication - linear mean score"])
+  d['DOCTOR_COMMUNICATION'] <- as.numeric(d["v.Doctor communication - linear mean score"])
+  d['STAFF_RESPONSIVENESS'] <- as.numeric(d["v.Staff responsiveness - linear mean score"])
+  d['PAIN_MANAGEMENT'] <- as.numeric(d["v.Pain management - linear mean score"])
+  d['MEDICATION_COMMUNICATION'] <- as.numeric(d["v.Communication about medicines - linear mean score"])
+  d['DISCHARGE_INFO'] <- as.numeric(d["v.Discharge information - linear mean score"])
+  d['CARE_TRANSITION'] <- as.numeric(d["v.Care transition - linear mean score"])
+  d['HOSPITAL_RATING'] <- as.numeric(d["v.Overall hospital rating - linear mean score"])
+  d['QUIETNESS'] <- as.numeric(d["v.Quietness - linear mean score"])
+  outputCols<- c('TARGET_NUM','SURVEY_RESPONSE_RATE','CLEANLINESS','NURSE_COMMUNICATION','DOCTOR_COMMUNICATION','STAFF_RESPONSIVENESS','PAIN_MANAGEMENT','MEDICATION_COMMUNICATION','DISCHARGE_INFO','CARE_TRANSITION','HOSPITAL_RATING','QUIETNESS')
+  
+  #d['TYPE_ACUTE_CARE_HOSPITALS_BIN'] <- if (d['Hospital.Type']=="Acute Care Hospitals") {1} else {0}
+  #outputCols <- c(outputCols,'TYPE_ACUTE_CARE_HOSPITALS_BIN')
+  
+  d['TYPE_CRITICAL_ACCESS_HOSPITALS_BIN'] <- if (d['Hospital.Type']=="Critical Access Hospitals") {1} else {0}
+  outputCols <- c(outputCols,'TYPE_CRITICAL_ACCESS_HOSPITALS_BIN')
+
+  d['TYPE_CHILDRENS_BIN'] <- if (d['Hospital.Type']=="Childrens") {1} else {0}
+  outputCols <- c(outputCols,'TYPE_CHILDRENS_BIN')
+  
+  #d['OWNERSHIP_GOV_DISTRICT_BIN'] <- if (d['Hospital.Ownership']=="Government - Hospital District or Authority") {1} else {0}
+  d['OWNERSHIP_PRIVATE_BIN'] <- if (d['Hospital.Ownership']=="Voluntary non-profit - Private") {1} else {0}
+  d['OWNERSHIP_PROPRIETARY_BIN'] <- if (d['Hospital.Ownership']=="Proprietary") {1} else {0}
+  d['OWNERSHIP_GOV_STATE_BIN'] <- if (d['Hospital.Ownership']=="Government - State") {1} else {0}
+  d['OWNERSHIP_OTHER_BIN'] <- if (d['Hospital.Ownership']=="Voluntary non-profit - Other") {1} else {0}
+  d['OWNERSHIP_GOV_LOCAL_BIN'] <- if (d['Hospital.Ownership']=="Government - Local") {1} else {0}
+  d['OWNERSHIP_CHURCH_BIN'] <- if (d['Hospital.Ownership']=="Voluntary non-profit - Church") {1} else {0}
+  d['OWNERSHIP_GOV_FEDERAL_BIN'] <- if (d['Hospital.Ownership']=="Government - Federal") {1} else {0}
+  d['OWNERSHIP_TRIBAL_BIN'] <- if (d['Hospital.Ownership']=="Tribal") {1} else {0}
+  d['OWNERSHIP_PHYSICIAN_BIN'] <- if (d['Hospital.Ownership']=="Physician") {1} else {0}
+  outputCols <- c(outputCols,'OWNERSHIP_PRIVATE_BIN','OWNERSHIP_PROPRIETARY_BIN','OWNERSHIP_GOV_STATE_BIN','OWNERSHIP_OTHER_BIN','OWNERSHIP_GOV_LOCAL_BIN','OWNERSHIP_CHURCH_BIN','OWNERSHIP_GOV_FEDERAL_BIN','OWNERSHIP_TRIBAL_BIN','OWNERSHIP_PHYSICIAN_BIN')
+  
+  d['EMERGENCY_SVC_BIN'] <- if (d['Emergency.Services']=='Yes') {1} else {0}
+  outputCols <- c(outputCols,'EMERGENCY_SVC_BIN')
+  
+  d['HOSPITAL_OVERALL_RTG'] <- as.numeric(d['Hospital.overall.rating'])
+  outputCols <- c(outputCols,'HOSPITAL_OVERALL_RTG')
+  
+  d['MORTALITY_SAME_NTL_BIN'] <- if (d['Mortality.national.comparison']=="Same as the National average") {1} else {0}
+  d['MORTALITY_ABOVE_NTL_BIN'] <- if (d['Mortality.national.comparison']=="Above the National average") {1} else {0}
+  d['SAFETY_OF_CARE_SAME_NTL_BIN'] <- if (d['Safety.of.care.national.comparison']=="Same as the National average") {1} else {0}
+  d['SAFETY_OF_CARE_ABOVE_NTL_BIN'] <- if (d['Safety.of.care.national.comparison']=="Above the National average") {1} else {0}
+  d['READM_SAME_NTL_BIN'] <- if (d['Readmission.national.comparison']=="Same as the National average") {1} else {0}
+  d['READM_ABOVE_NTL_BIN'] <- if (d['Readmission.national.comparison']=="Above the National average") {1} else {0}
+  d['EFFECTIVENESS_OF_CARE_SAME_NTL_BIN'] <- if (d['Effectiveness.of.care.national.comparison']=="Same as the National average") {1} else {0}
+  d['EFFECTIVENESS_OF_CARE_ABOVE_NTL_BIN'] <- if (d['Effectiveness.of.care.national.comparison']=="Above the National average") {1} else {0}
+  d['TIMELINESS_OF_CARE_SAME_NTL_BIN'] <- if (d['Timeliness.of.care.national.comparison']=="Same as the National average") {1} else {0}
+  d['TIMELINESS_OF_CARE_ABOVE_NTL_BIN'] <- if (d['Timeliness.of.care.national.comparison']=="Above the National average") {1} else {0}
+  d['EFFICIENCY_OF_USE_MEDICAL_IMAGING_EQUIPMENT_SAME_NTL_BIN'] <- if (d['Efficient.use.of.medical.imaging.national.comparison']=="Same as the National average") {1} else {0}
+  d['EFFICIENCY_OF_USE_MEDICAL_IMAGING_EQUIPMENT_ABOVE_NTL_BIN'] <- if (d['Efficient.use.of.medical.imaging.national.comparison']=="Above the National average") {1} else {0}
+  outputCols <- c(outputCols,'MORTALITY_SAME_NTL_BIN','MORTALITY_ABOVE_NTL_BIN','SAFETY_OF_CARE_SAME_NTL_BIN','SAFETY_OF_CARE_ABOVE_NTL_BIN','READM_SAME_NTL_BIN','READM_ABOVE_NTL_BIN','EFFECTIVENESS_OF_CARE_SAME_NTL_BIN','EFFECTIVENESS_OF_CARE_ABOVE_NTL_BIN','TIMELINESS_OF_CARE_SAME_NTL_BIN','TIMELINESS_OF_CARE_ABOVE_NTL_BIN','EFFICIENCY_OF_USE_MEDICAL_IMAGING_EQUIPMENT_SAME_NTL_BIN','EFFICIENCY_OF_USE_MEDICAL_IMAGING_EQUIPMENT_ABOVE_NTL_BIN')
+  r<- as.numeric(d[outputCols])
+  names(r) <- outputCols
+  r
+}
+
+training_trans<-data.frame(t(rbind(apply(training,1,transform))))
+
+columns <- colnames(training_trans)
+target <- "TARGET_NUM"
+target_lm <- target
+inputs_bin <- columns[grep("_BIN",columns)]
+inputs_num <- columns[!columns %in% c(target,inputs_bin)]
+inputs<- c(inputs_bin,inputs_num)
+
+
+
+```
+
+
+
+#### Transformation Analysis Of Numerical Features
+
+##### **TARGET_FLAG**
+
+Let's see how the TARGET_NUM respond to each of the numerical features 
+
+
+```{r}
+
+numResponse <- function(col,d){
+    data <- d
+    data <- data[order(data[,col]),c(col,target_lm)]
+    x <- data[,col]
+    y <- data[,target_lm]
+
+    plot(y~cut(x,5), main=paste0("TARGET ~ ",col," Boxplot"),xlab=col, ylab="TARGET")
+    plot(y~x, main=paste0("TARGET ~ ",col),xlab=col, ylab="TARGET")
+
+}
+View(training_trans[,inputs_num])
+sapply(inputs_num,function(x){numResponse(x,training_trans)})
+#sapply(inputs_num,function(x){numResponse(x,evaluation_trans)})
+
+
+```
+
+
+
+
+##### **TARGET_NUM**
+
+```{r}
+hist(training_trans[,target_lm])
+```
+
+
+
+
+#### Final summary
+
+```{r}
+summary <- describe(training_trans[,c(target,inputs)])[,c("n","mean","sd","median","min","max")]
+summary$completeness <- summary$n/nrow(training_trans)
+summary$cv <- 100*summary$sd/summary$mean
+
+kable(summary)
+
+#head(training_trans)
+#summary(training_trans)
+
+
+```
+
+### How are the input values distributed?, do we need to do something about them?
+
+Here's the distribution of the values for each of the variables
+
+Let's get a view of the normalized values:
+
+# Numerical target variable - RECOMMEND HOSPITAL
+
+For our descriptive stats & intuitive understanding, let's cut  the car Number of Cases Purchased
+
+```{r}
+
+require("reshape2")
+require("ggplot2")
+#detach(package:plyr)
+require("dplyr")
+
+training_normalized <- cbind(data.frame(scale(training_trans[,inputs_num])),training_trans[,c(inputs_bin,target)])
+training_normalized$TARGET_FLAG <- training_normalized$TARGET > median(training_normalized$TARGET)
+
+#training_normalized$TARGET_CUT <- cut(training_normalized$TARGET,2)
+
+
+bin_summary <- melt(training_normalized[,c(inputs_bin,"TARGET_FLAG")], measure.vars = inputs_bin) %>%
+  group_by(TARGET_FLAG,variable) %>%
+  summarise(pct = sum(value)/length(value))
+
+ggplot(bin_summary, aes(variable, pct)) +   
+  geom_bar(aes(fill = TARGET_FLAG), position = "dodge", stat="identity")+
+  guides(fill=guide_legend(title="Recommend Hospital Above Median")) +
+   theme(legend.position="bottom")+
+    coord_flip()+
+  labs(title="Boxplot of Recommend Hospital ~ Binary Predictors", y="Percent", x="Predictor")
+
+
+```
+
+possible correlations
+
+```{r}
+
+
+summary_positive <- describe(training_normalized[training_normalized$TARGET_FLAG,c(inputs)])[,c("mean","n")]
+summary_negative <- describe(training_normalized[!training_normalized$TARGET_FLAG,c(inputs)])[,c("mean","n")]
+summary_by_target <- merge(summary_positive,summary_negative,by="row.names")
+colnames(summary_by_target) <- c("Variable","Above Median Recommend Hospital - Avg","Above Median Recommend Hospital - n","Below Median Recommend Hospital - Avg", "Below Median Recommend Hospital - n")
+summary_by_target$delta <- abs(summary_by_target[,"Above Median Recommend Hospital - Avg"]-summary_by_target[,"Below Median Recommend Hospital - Avg"])
+
+kable(summary_by_target[order(-summary_by_target$delta),])
+
+```
+
+
+## TRAINIG DATASETS
+
+#NEED TO:
+
+* split datasets 
+* run models
+
+
+```{r}
+library(caTools)
+
+train_rows <- sample.split(training_trans$TARGET_NUM, SplitRatio=0.7)
+training_trans_model_bin <- training_trans[train_rows,]
+training_trans_eval_bin <- training_trans[-train_rows,]
+```
+
+## 3. BUILD MODELS (25 Points)
+
+Using the training data set, build at least two different multiple linear regression models and three different binary logistic regression models, using different variables (or the same variables with different transformations). You may select the variables manually, use an approach such as Forward or Stepwise, use a different approach such as trees, or use a combination of techniques. Describe the techniques you used. If you manually selected a variable for inclusion into the model or exclusion into the model, indicate why this was done.
+
+Be sure to explain how you can make inferences from the model, as well as discuss other relevant model output. Discuss the coefficients in the models, do they make sense? Are you keeping the model even though it is counter intuitive? Why? The boss needs to know.
+
+```{r}
+library(MASS)
+library(frm)
+#Model0 - Multiple Linear Regression - Base Line
+mlr1 <- glm(TARGET_NUM ~ . , data = training_trans[,-c(14,22)])
+summary(mlr1)
+BIC(mlr1)
+
+#Model1 - Multiple Linear Regression - reduced var
+training_trans_reduced <- subset(training_trans, select = c(1,2,3,5,6,9,10,11,12,16,17,28,34,35,37))
+mlr2 <- glm(TARGET_NUM ~ . , data = training_trans_reduced)
+summary(mlr2)
+BIC(mlr2)
+
+#Model2 - Poisson Full Model
+poisson0 <- glm(TARGET_NUM ~ . , family = "poisson", data = training_trans[,-c(14,22)])
+summary(poisson0)
+BIC(poisson0)
+
+#Model3 - Poisson Reduced
+training_trans_reduced <- subset(training_trans, select = c(1,2,3,5,6,9,10,11,12,16,17,28,34,35,37))
+poisson1 <- glm(TARGET_NUM ~ . , family = "poisson", data = training_trans_reduced)
+summary(poisson1)
+BIC(poisson1)
+
+#Model4 - Poisson Reduced More
+training_trans_reduced <- subset(training_trans, select = c(1,10,11,12))
+poisson2 <- glm(TARGET_NUM ~ . , family = "poisson", data = training_trans_reduced)
+summary(poisson2)
+BIC(poisson2)
+
+
+# fractional logit model, full var
+# transform the percentage to a value from 0 to 1.
+training_trans_frac <- training_trans
+training_trans_frac_target <- training_trans_frac$TARGET_NUM/100
+training_trans_frac <- training_trans_frac[,-c(1,14,22)]
+frac1 <- frm(training_trans_frac_target, training_trans_frac, linkfrac="logit")
+
+# backward stepwise
+stepwise1 <- glm(TARGET_NUM~.,data=training_trans)
+backward <- step(stepwise1, trace = 0)
+summary(backward)
+BIC(backward)
+
+#forward stepwise
+stepwise2 <- glm(TARGET_NUM~1,data=training_trans)
+forward <- step(stepwise2, scope = list(lower=formula(stepwise2), upper=formula(stepwise1)), direction = "forward", trace = 0)
+summary(forward)
+BIC(forward)
+```
+
+
+
+## 4. SELECT MODELS (25 Points)
+
+
+Decide on the criteria for selecting the best count regression model. Will you select models with slightly worse
+performance if it makes more sense or is more parsimonious? Discuss why you selected your models.
+
+
+For the count regression model, will you use a metric such as AIC, average squared error, etc.? Be sure to
+explain how you can make inferences from the model, and discuss other relevant model output. If you like the
+multiple linear regression model the best, please say why. However, you must select a count regression model for
+model deployment. Using the training data set, evaluate the performance of the count regression model. Make
+predictions using the evaluation data set.
+
+
+```{r}
+table(training_trans$TARGET_NUM)
+plot(forward)
+```
+
+
+
+
+```{r}
+#functions for sd and se
+mysd <- function(predict, target) {
+  diff_sq <- (predict - mean(target))^2
+  return(mean(sqrt(diff_sq)))
+}
+
+
+myse <- function(predict, target) {
+  diff_sq <- (predict - target)^2
+  return(mean(sqrt(diff_sq)))
+}
+
+#predictions + sd + se
+#mlr1
+predict2 <- round(predict(mlr1,training_trans_eval_bin , type = 'response'), 0)
+mysd(predict2, training_trans_eval_bin$TARGET_NUM)
+myse(predict2, training_trans_eval_bin$TARGET_NUM)
+
+#mlr2
+predict2 <- round(predict(mlr2,training_trans_eval_bin , type = 'response'), 0)
+mysd(predict2, training_trans_eval_bin$TARGET_NUM)
+myse(predict2, training_trans_eval_bin$TARGET_NUM)
+
+#poi1
+predict2 <- round(predict(poisson1,training_trans_eval_bin , type = 'response'), 0)
+mysd(predict2, training_trans_eval_bin$TARGET_NUM)
+myse(predict2, training_trans_eval_bin$TARGET_NUM)
+
+#poi2
+predict2 <- round(predict(poisson2,training_trans_eval_bin , type = 'response'), 0)
+mysd(predict2, training_trans_eval_bin$TARGET_NUM)
+myse(predict2, training_trans_eval_bin$TARGET_NUM)
+
+#backward
+predict2 <- round(predict(backward,training_trans_eval_bin , type = 'response'), 0)
+mysd(predict2, training_trans_eval_bin$TARGET_NUM)
+myse(predict2, training_trans_eval_bin$TARGET_NUM)
+
+#forward
+predict2 <- round(predict(forward,training_trans_eval_bin , type = 'response'), 0)
+mysd(predict2, training_trans_eval_bin$TARGET_NUM)
+myse(predict2, training_trans_eval_bin$TARGET_NUM)
+
+
+
+# se and sd for all these things?
+qq <- data.frame(cbind(training_trans_eval_bin$TARGET_NUM, predict2))
+colnames(qq) <- c("real", "predict")
+```
+
+
+```{r}
+round(predict(foward, evaluation_trans ,type = 'response'), 4)
+```
